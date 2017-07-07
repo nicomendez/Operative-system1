@@ -55,7 +55,56 @@ start_socket(Socket, Pid, ID) ->
     
 socket_process(Socket, Pid, ID) -> 
     receive 
-        {tcp, Socket, 
+        {tcp, Socket, Str} ->
+            io:format("~p~n", Str),
+            Com = string_to_list(Str),
+            case Com of
+                ["LSD"] -> Pid!{self(), lsd},
+                           receive
+                              {ok, List} -> gen_tcp:send(Socket, list_to_string(List))
+                           end;
+                ["DEL", Arg0] -> Pid!{self(), del, Arg0}
+                                 receive
+                                    {ok} -> gen_tcp:send(Socket, "OK");
+                                    {error, fileNoExist} -> gen_tcp:send(Socket, "FILE INEXISTENT");
+                                    {error, fileOpen} -> gen_tcp:send(Socket, "FILE IS OPEN")
+                                 end;
+                ["CRE", Arg0] -> Pid!{self(), cre, Arg0}
+                                 receive
+                                    {ok} -> gen_tcp:send(Socket, "OK");
+                                    {error, fileExist} -> gen_tcp:send(Socket, "FILE EXIST")
+                                 end;
+                ["OPN", Arg0] -> Pid!{self(), opn, Arg0}
+                                 receive
+                                    {ok, Fd} -> gen_tcp:send(Socket, "OK FD " ++ integer_to_list(Fd));
+                                    {error, isOpen} -> gen_tcp:send(Socket, "ERROR THE FILE IS ALREADY OPEN")
+                                 end;
+                ["WRT", _, Arg0, _, Arg1, Arg2] -> Pid!{self(), wrt, Arg0, Arg1, Arg2}
+                                 receive
+                                    {ok} -> gen_tcp:send(Socket, "OK");
+                                    {error} -> gen_tcp:send(Socket, "ERROR")
+                                 end;
+                ["REA", _, Arg0, _, Arg1] -> Pid!{self(), rea, Arg0, Arg1}
+                                 receive
+                                    {ok, Read} -> gen_tcp:send(Socket, Read);
+                                    {error} -> gen_tcp:send(Socket, "ERROR")
+                                 end;
+                ["CLO", _, Arg0] -> Pid!{self(), clo, Arg0}
+                                 receive
+                                    {ok} -> gen_tcp:send(Socket, "OK");
+                                    {error} -> gen_tcp:send(Socket, "ERROR")
+                                 end;
+                ["BYE"] -> Pid!{self(), bye},
+                           receive
+                               {ok} -> 
+                                    gen_tcp:send(Socket, "OK"),
+                                    io:format("Conexion cerrada con ~p ~n", [Socket]),
+                                    tcp:close(Socket); 
+                           end;
+                _ -> gen_tcp:send(Socket, "INVALID COMMAND " ++ Com)
+            end.
+                           
+                 
     
 %%%%%%%%%%%%%%%%%%%%%%%
 

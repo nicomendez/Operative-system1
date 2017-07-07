@@ -3,3 +3,5 @@
 
 string_to_list([A | []]) -> [[A]];
 string_to_list([A | [32 | List]]) -> [[A]] ++ string_to_list(List).
+
+list_to_string(A) -> lists:flatten(lists:map(fun(X) -> X ++ " " end, A)).
