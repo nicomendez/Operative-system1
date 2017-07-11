@@ -1,7 +1,6 @@
 -module(server).
 -export([init/0]).
 -import(aux_functions, [string_to_list/1]).
--import(worker, [worker/1, worker/1]).
 
 -define(TOL, 1000).
 
@@ -53,9 +52,8 @@ start_socket(Socket, Pid, ID) ->
                     start_socket(Socket, Pid, ID)
             end
     end.     
-
-% LDfIo: List of file descriptors and IoDevice
-socket_process(Socket, Pid, ID, LFdIo) -> 
+    
+socket_process(Socket, Pid, ID) -> 
     receive 
         {tcp, Socket, Str} ->
             io:format("~p~n", Str),
@@ -78,7 +76,7 @@ socket_process(Socket, Pid, ID, LFdIo) ->
                                  end;
                 ["OPN", Arg0] -> Pid!{self(), opn, Arg0}
                                  receive
-                                    {ok, IoDevice} -> % gen_tcp:send(Socket, "OK FD " ++ integer_to_list(Fd)); ¡ARREGLAR!
+                                    {ok, Fd} -> gen_tcp:send(Socket, "OK FD " ++ integer_to_list(Fd));
                                     {error, isOpen} -> gen_tcp:send(Socket, "ERROR THE FILE IS ALREADY OPEN")
                                  end;
                 ["WRT", _, Arg0, _, Arg1, Arg2] -> Pid!{self(), wrt, Arg0, Arg1, Arg2}
