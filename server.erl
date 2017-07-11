@@ -79,22 +79,27 @@ socket_process(Socket, Pid, ID, LFdIo) ->
                 ["OPN", Arg0] -> Pid!{self(), opn, Arg0}
                                  receive
                                     {ok, IoDevice} -> % gen_tcp:send(Socket, "OK FD " ++ integer_to_list(Fd)); ¡ARREGLAR!
-                                    {error, isOpen} -> gen_tcp:send(Socket, "ERROR THE FILE IS ALREADY OPEN")
+                                    {error, isOpen} -> gen_tcp:send(Socket, "ERROR THE FILE IS ALREADY OPEN");
+                                    {error, fileNoExist} -> gen_tcp:send(Socket, "ERROR THE FILA NO EXIST")
                                  end;
-                ["WRT", _, Arg0, _, Arg1, Arg2] -> Pid!{self(), wrt, Arg0, Arg1, Arg2}
-                                 receive
-                                    {ok} -> gen_tcp:send(Socket, "OK");
-                                    {error} -> gen_tcp:send(Socket, "ERROR")
-                                 end;
+                ["WRT", "FD", Fd, "SIZE", _, Buff] -> 
+                                 case(convert_fd_to_io(Fd, LFdIo)) of
+                                    error -> gen_tcp:send(Socket, "ERROR INVALID FILE DESCRIPTOR");
+                                    {ok, IoDe} -> Pid!{self(), wrt, IoDe, Buff},
+                                                  receive
+                                                    {ok} -> gen_tcp:send(Socket, "OK");
+                                                    {error} -> gen_tcp:send(Socket, "ERROR")
+                                                  end;
+
+
                 ["REA", _, Arg0, _, Arg1] -> Pid!{self(), rea, Arg0, Arg1}
                                  receive
                                     {ok, Read} -> gen_tcp:send(Socket, Read);
                                     {error} -> gen_tcp:send(Socket, "ERROR")
                                  end;
-                ["CLO", _, Arg0] -> Pid!{self(), clo, Arg0}
+                ["CLO", _, Fd] -> Pid!{self(), clo, convert_fd_io(Fd, LFIo)}%Falta ver de quitar de la lista el pid y el caso de que el fd sea invalido (copiar WRT)
                                  receive
-                                    {ok} -> gen_tcp:send(Socket, "OK");
-                                    {error} -> gen_tcp:send(Socket, "ERROR")
+                                    {ok} -> gen_tcp:send(Socket, "OK")
                                  end;
                 ["BYE"] -> Pid!{self(), bye},
                            receive

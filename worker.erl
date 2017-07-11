@@ -8,38 +8,99 @@ worker(-1) ->
     end.
 
 % worker(PidNext, ListFilesOpen, 
-% file structure {Name, Owner
+% file structure {Name, OwnerPid, IoDevice}
 worker(Nxt, FOpen) ->
     I = self(),
     receive
         %lsd from workers
-        {wlsd, I, Files, Pid} -> {_, List} = file:list_dir("Archivos"), Pid!{Files, List};
-        {wlsd, Who, Files, Pid} -> Nxt!{Who, lsd, Files ++ FOpen, Pid};
+%        {wlsd, I, Files, Pid} -> {_, List} = file:list_dir("Archivos"), Pid!{Files, List};
+%        {wlsd, Who, Files, Pid} -> Nxt!{Who, lsd, Files ++ FOpen, Pid};
         
         %del from workers
-        {wdel, I, FileName, error, Pid} -> Pid!{error, fileOpen};
-        {wdel, I, FileName, _, Pid} -> case(file:delete("archivos/" ++ FileName) of
-                                          ok -> Pid!{ok};
-                                          {error, _} -> Pid{error, FileNoExist}
-                                       end;
-        {wdel, Who, FileName, error, Pid} -> Nxt!{wdel, Who, FileName, error, Pid};
-        {wdel, Who, FileName, _, Pid} -> Nxt!{wdel, Who, FileName, exist_file(FileName, Fopen), Pid};
+        {wdel, I, FileName, Atom, Pid} -> NFOpen = remove_file_name(FileName, FOpen),
+                                          case(Atom) of
+                                            error -> Pid!{error, fileOpen};
+                                            _ -> %ask for lock ¡ATTENTION!
+                                                 case(file:delete("archivos/" ++ FileName) of
+                                                    ok -> Pid!{ok};
+                                                    {error, _} -> Pid{error, fileNoExist}
+                                                 end
+                                          end,
+                                          worker(Nxt, NFOpen);
 
-        %cre from workers
-        {wcre, I, FileName, error, Pid} -> Pid!{error, fileExist};
-        {wcre, I, FileName, _, Pid} -> os:cmd("touch archivos/" ++ FileName),
-                                       Pid!{ok};
-        {wcre, Who, FileName, error, Pid} -> Nxt!{wcre, Who, FileName, error, Pid};
-        {wcre, Who, FileName, _, Pid} -> Nxt!{wcre, Who, FileName, exist_file(FileName, FOpen), Pid};
+        {wdel, Who, FileName, error, Pid} -> Nxt!{wdel, Who, FileName, error, Pid};
+        {wdel, Who, FileName, _, Pid} -> Nxt!{wdel, Who, FileName, not_exist_file(FileName, Fopen), Pid};
 
         %opn from workers
-        {wopn, I, FileName, error, Pid} -> Pid!{error, isOpen};
-        {wopn, I, FileName, _, Pid} -> case file:open("archivos/" ++ FileName, [read, append]) of
-                                          {ok, IoDevice} -> Pid!{ok, IoDevice};
-                                          {error, TipeError} -> io:format("error in open, tipe of error ~p ~n", [TipeError]),
-                                                                Pid{error, isOpen}
-                                       end;
-        {wopen, Who, FileName, error, Pid} -> Nxt!{wopen, Who, FileName, error, Pid};
-        {wopen, Who, FileName, _, Pid} -> Nxt!{wopen, Who, FileName, exist_file(FileName, FOpen), Pid};
+        {wopn, I, FileName, Atom, Pid} -> NFOpen = remove_file_name(FileName, FOpen),
+                                          case(Atom) of
+                                            error -> Pid!{error, isOpen}, worker(Nxt, NFOpen);
+                                            _ ->  case(lists:member(FileName, Files)) of %Todo esto por si se produce un del antes del opn
+                                                      true -> {ok, IoDevice} = file:open("archivos/" ++ FileName, [read, append]), 
+                                                              Pid!{ok, IoDevice}, 
+                                                              worker(Nxt, NFOpen ++ [{FileName, Pid, IoDevice}]);
+                                                      _ -> Pid!{error, fileNoExist}, worker(Nxt, NFOpen)
+                                                  end
+                                          end;
 
+        {wopen, Who, FileName, error, Pid} -> Nxt!{wopen, Who, FileName, error, Pid};
+        {wopen, Who, FileName, _, Pid} -> Nxt!{wopen, Who, FileName, not_exist_file(FileName, FOpen), Pid};
+
+
+        %LSD
+        {Pid, lsd} -> {_, Files} = file:list_dir("Archivos"),
+                                   Pid!{ok, Files},
+                                   worker(Nxt, FOpen);
+
+        %CRE
+        {Pid, cre, FileName} -> %ask for lock ¡ATTENTION!
+                                {_, Files} = file:list_dir("Archivos"),
+                                case(lists:member(FileName, Files) of
+                                    true -> Pid!{error, fileExist};
+                                    false -> os:cmd("touch archivos/" ++ FileName),
+                                             Pid!{ok}
+                                end,
+                                worker(Nxt, FOpen);
+        %DEL
+        {Pid, del, FileName} -> case(not_exist_file(FileName, FOpen)) of
+                                    true -> Pid!{error, fileOpen};
+                                    false -> NFOpen = FOpen ++ [{FileName, Pid, []}], %include the target file into opens
+                                             Nxt!{wdel, I, FileName, true, Pid}
+                                end,
+                                worker(Nxt, NFOpen);
+
+        %OPN
+        {Pid, opn, FileName} -> case(not_exist_file(FileName, FOpen))of
+                                    false -> Pid!{error, fileIsOpen};
+                                    _ -> {_, Files} = file:list_dir("Archivos"),
+                                         case(lists:member(FileName, Files)) of
+                                                false ->  Pid!{error, fileNoExist};
+                                                true  -> NFOpen = FOpen ++ [{FileName, Pid, []}],
+                                                         Nxt!{wopen, I, FileName, true, Pid}
+                                         end
+                                end,
+                                worker(Nxt, NFOpen);
+            
+        %WRT
+        {Pid, wrt, IoDe, Buff} -> 
+
+        %CLO
+        {Pid, clo, Io} -> NFOpen = remove_file_Io(Io, FOpen),
+                          Pid!{ok},
+                          worker(Nxt, NFOpen);
+        %BYE
+        {Pid, bye} -> NFOpen = remove_files_by_own(Pid, FOpen),
+                      Pid!{ok},
+                      worker(Nxt, NFOpen)
         
+        end.
+
+
+
+
+
+
+
+
+
+
