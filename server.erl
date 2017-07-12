@@ -54,7 +54,7 @@ start_socket(Socket, Pid, ID) ->
             end
     end.     
 
-% LDfIo: List of file descriptors and IoDevice
+% LDfIo: List of file descriptors and IoDevice ({Fd, Io})
 socket_process(Socket, Pid, ID, LFdIo) -> 
     receive 
         {tcp, Socket, Str} ->
@@ -78,7 +78,10 @@ socket_process(Socket, Pid, ID, LFdIo) ->
                                  end;
                 ["OPN", Arg0] -> Pid!{self(), opn, Arg0}
                                  receive
-                                    {ok, IoDevice} -> % gen_tcp:send(Socket, "OK FD " ++ integer_to_list(Fd)); ¡ARREGLAR!
+                                    {ok, IoDevice} -> case(convert_io_fd(IoDevice, LDfIo)) of
+                                                        {ok, LS, Fd} -> gen_tcp:send(Socket, "OK FD " ++ integer_to_list(Fd)),
+                                                                        socket_process(Socket, Pid, ID, LFdIo ++ LS)
+                                                      end;
                                     {error, isOpen} -> gen_tcp:send(Socket, "ERROR THE FILE IS ALREADY OPEN");
                                     {error, fileNoExist} -> gen_tcp:send(Socket, "ERROR THE FILA NO EXIST")
                                  end;
@@ -89,18 +92,25 @@ socket_process(Socket, Pid, ID, LFdIo) ->
                                                   receive
                                                     {ok} -> gen_tcp:send(Socket, "OK");
                                                     {error} -> gen_tcp:send(Socket, "ERROR")
-                                                  end;
+                                                  end
+                                 end;
 
-
-                ["REA", _, Arg0, _, Arg1] -> Pid!{self(), rea, Arg0, Arg1}
+                ["REA", "FD", Fd, _, Num] -> Pid!{self(), rea, Fd, Num}
                                  receive
                                     {ok, Read} -> gen_tcp:send(Socket, Read);
                                     {error} -> gen_tcp:send(Socket, "ERROR")
                                  end;
-                ["CLO", _, Fd] -> Pid!{self(), clo, convert_fd_io(Fd, LFIo)}%Falta ver de quitar de la lista el pid y el caso de que el fd sea invalido (copiar WRT)
-                                 receive
-                                    {ok} -> gen_tcp:send(Socket, "OK")
-                                 end;
+
+                ["CLO", _, Fd] -> case(convert_fd_to_io(Fd, LFdIo)) of
+                                    error -> NLFdIo = LFdIo, gen_tcp:send(Socket, "ERROR INVALID FILE DESCRIPTOR");
+                                    {ok, IoDe} -> Pid!{self(), clo, IoDe},
+                                                  receive
+                                                    {ok} -> NLFdIo = remove_element(Fd, LDfIo),
+                                                            gen_tcp:send(Socket, "OK")
+                                                  end
+                                  end,
+                                  socket_process(Socket, Pid, ID, NLFdIo); 
+
                 ["BYE"] -> Pid!{self(), bye},
                            receive
                                {ok} -> 

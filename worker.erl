@@ -82,7 +82,14 @@ worker(Nxt, FOpen) ->
                                 worker(Nxt, NFOpen);
             
         %WRT
-        {Pid, wrt, IoDe, Buff} -> 
+        {Pid, wrt, IoDe, Buff} -> case(file:write(IoDe, Buff)) of
+                                    ok -> Pid!{ok};
+                                    _  -> Pid!{error}
+                                  end,
+                                  worker(Nxt, FOpen);
+
+        %REA
+        {Pid, rea, IoDe, Num} -> %pread/3 for read files, but it is not the solution
 
         %CLO
         {Pid, clo, Io} -> NFOpen = remove_file_Io(Io, FOpen),
