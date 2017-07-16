@@ -1,12 +1,12 @@
 -module(server).
 -export([init/0]).
--import(aux_functions, [string_to_list/1]).
--import(worker, [worker/1, worker/1]).
+-import(aux_functions, [string_to_list/1, list_to_string/1, convert_fd_io/2, convert_io_fd/2, remove_element/2]).
+-import(worker, [worker/1]).
 
 -define(TOL, 1000).
 
 init() -> 
-    Listen = start_server(),
+    {_, Listen} = start_server(),
     Workers = start_workers(),
     listening(Listen, Workers, 1).
 
@@ -22,13 +22,11 @@ start_workers() ->
     Pid3!Pid4,
     Pid4!Pid5,
     Pid5!Pid1,
-    
-    %Lista con todos los pids de los workers
-    Workers = [Pid1] ++ [Pid2] ++ [Pid3] ++ [Pid4] ++ [Pid5].
+
+   [Pid1, Pid2, Pid3, Pid4, Pid5].
     
 start_server() ->
-    {ok, Listen} = gen_tcp:listen(8000, [list, {packet, 0}, {reuseaddr, true}, {active, false}]),
-    Listen.
+   gen_tcp:listen(8000, [list, {packet, 0}, {reuseaddr, true}, {active, false}]).
     
 listening(Listen, Workers, ID) ->
     {ok, Socket} = gen_tcp:accept(Listen),
@@ -65,20 +63,20 @@ socket_process(Socket, Pid, ID, LFdIo) ->
                            receive
                               {ok, List} -> gen_tcp:send(Socket, list_to_string(List))
                            end;
-                ["DEL", Arg0] -> Pid!{self(), del, Arg0}
+                ["DEL", Arg0] -> Pid!{self(), del, Arg0},
                                  receive
                                     {ok} -> gen_tcp:send(Socket, "OK");
                                     {error, fileNoExist} -> gen_tcp:send(Socket, "FILE INEXISTENT");
                                     {error, fileOpen} -> gen_tcp:send(Socket, "FILE IS OPEN")
                                  end;
-                ["CRE", Arg0] -> Pid!{self(), cre, Arg0}
+                ["CRE", Arg0] -> Pid!{self(), cre, Arg0},
                                  receive
                                     {ok} -> gen_tcp:send(Socket, "OK");
                                     {error, fileExist} -> gen_tcp:send(Socket, "FILE EXIST")
                                  end;
-                ["OPN", Arg0] -> Pid!{self(), opn, Arg0}
+                ["OPN", Arg0] -> Pid!{self(), opn, Arg0},
                                  receive
-                                    {ok, IoDevice} -> case(convert_io_fd(IoDevice, LDfIo)) of
+                                    {ok, IoDevice} -> case(convert_io_fd(IoDevice, LFdIo)) of
                                                         {ok, LS, Fd} -> gen_tcp:send(Socket, "OK FD " ++ integer_to_list(Fd)),
                                                                         socket_process(Socket, Pid, ID, LFdIo ++ LS)
                                                       end;
@@ -86,7 +84,7 @@ socket_process(Socket, Pid, ID, LFdIo) ->
                                     {error, fileNoExist} -> gen_tcp:send(Socket, "ERROR THE FILA NO EXIST")
                                  end;
                 ["WRT", "FD", Fd, "SIZE", _, Buff] -> 
-                                 case(convert_fd_to_io(Fd, LFdIo)) of
+                                 case(convert_fd_io(Fd, LFdIo)) of
                                     error -> gen_tcp:send(Socket, "ERROR INVALID FILE DESCRIPTOR");
                                     {ok, IoDe} -> Pid!{self(), wrt, IoDe, Buff},
                                                   receive
@@ -95,17 +93,17 @@ socket_process(Socket, Pid, ID, LFdIo) ->
                                                   end
                                  end;
 
-                ["REA", "FD", Fd, _, Num] -> Pid!{self(), rea, Fd, Num}
+                ["REA", "FD", Fd, _, Num] -> Pid!{self(), rea, Fd, Num},
                                  receive
                                     {ok, Read} -> gen_tcp:send(Socket, Read);
                                     {error} -> gen_tcp:send(Socket, "ERROR")
                                  end;
 
-                ["CLO", _, Fd] -> case(convert_fd_to_io(Fd, LFdIo)) of
+                ["CLO", _, Fd] -> case(convert_fd_io(Fd, LFdIo)) of
                                     error -> NLFdIo = LFdIo, gen_tcp:send(Socket, "ERROR INVALID FILE DESCRIPTOR");
                                     {ok, IoDe} -> Pid!{self(), clo, IoDe},
                                                   receive
-                                                    {ok} -> NLFdIo = remove_element(Fd, LDfIo),
+                                                    {ok} -> NLFdIo = remove_element(Fd, LFdIo),
                                                             gen_tcp:send(Socket, "OK")
                                                   end
                                   end,
@@ -116,10 +114,11 @@ socket_process(Socket, Pid, ID, LFdIo) ->
                                {ok} -> 
                                     gen_tcp:send(Socket, "OK"),
                                     io:format("Conexion cerrada con ~p ~n", [Socket]),
-                                    tcp:close(Socket); 
+                                    tcp:close(Socket) 
                            end;
                 _ -> gen_tcp:send(Socket, "INVALID COMMAND " ++ Com)
-            end.
+            end
+    end.
                            
                  
     

@@ -1,6 +1,6 @@
 -module(worker).
 -compile(export_all).
--import(aux_functions, [exist_file/2]).
+-import(aux_functions, [not_exist_file/2, remove_file_Io/2, remove_file_name/2, remove_files_by_own/2]).
 
 worker(-1) ->
     receive
